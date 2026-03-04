@@ -54,12 +54,12 @@ Formalized the method and ran it end-to-end against the target application.
 | Tool | Role |
 |------|------|
 | [Joern](https://joern.io) (v4.0.489) | CPG engine, CPGQL queries, dataflow/taint analysis |
-| [GitNexus](https://github.com/BlockSecCA/GitNexus) | Complementary graph analysis (blast radius, module discovery) |
+| [GitNexus](https://github.com/BlockSecCA/GitNexus) (fork) | Complementary graph analysis (blast radius, module discovery) |
 | [joern-mcp](https://github.com/BlockSecCA/joern-mcp) | MCP server wrapping Joern's API for LLM tool use |
 
 ## Target
 
-[vulnerable-app](https://github.com/BlockSecCA/vulnerable-app): an intentionally vulnerable Express/TypeScript application with 107 documented security challenges. Express 4.21, Sequelize ORM, custom JWT auth, no input validation libraries.
+[vulnerable-app](https://github.com/BlockSecCA/vulnerable-app): a debranded fork of an intentionally vulnerable Express/TypeScript application with 107 documented security challenges. Debranded to prevent LLM training data leakage during analysis. Express 4.21, Sequelize ORM, custom JWT auth, no input validation libraries.
 
 ## Author
 
