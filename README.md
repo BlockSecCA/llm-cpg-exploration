@@ -61,6 +61,10 @@ Formalized the method and ran it end-to-end against the target application.
 
 [vulnerable-app](https://github.com/BlockSecCA/vulnerable-app): a debranded fork of an intentionally vulnerable Express/TypeScript application with 107 documented security challenges. Debranded to prevent LLM training data leakage during analysis. Express 4.21, Sequelize ORM, custom JWT auth, no input validation libraries.
 
+## References
+
+- Lekssays et al., *LLMxCPG: A Framework for LLM-Driven Code Vulnerability Detection using Code Property Graphs* (2025). [arXiv:2507.16585](https://arxiv.org/abs/2507.16585)
+
 ## Author
 
 Carlos / [BlockSecCA](https://github.com/BlockSecCA)
