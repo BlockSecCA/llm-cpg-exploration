@@ -1,0 +1,1898 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CPG Design Analysis — Two-Pass Approach</title>
+<style>
+  /* ── Reset & Base ────────────────────────────────────── */
+  *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg-dark: #0f1117;
+    --bg-slide: #161822;
+    --bg-card: #1e2030;
+    --accent: #7c5cfc;
+    --accent-glow: rgba(124, 92, 252, 0.25);
+    --accent-secondary: #38bdf8;
+    --danger: #f43f5e;
+    --success: #34d399;
+    --warning: #fbbf24;
+    --text: #e2e8f0;
+    --text-muted: #94a3b8;
+    --text-dim: #64748b;
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+    --slide-pad: clamp(2rem, 5vw, 5rem);
+  }
+
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+  html {
+    font-size: 16px;
+    scroll-snap-type: y mandatory;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg-dark);
+    color: var(--text);
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+
+  /* ── Slide Container ─────────────────────────────────── */
+  .slide {
+    min-height: 100vh;
+    scroll-snap-align: start;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: var(--slide-pad);
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* ── Slide Transitions ───────────────────────────────── */
+  .slide .reveal {
+    opacity: 0;
+    transform: translateY(30px);
+    transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+                transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .slide .reveal.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  .reveal-d1 { transition-delay: 0.1s !important; }
+  .reveal-d2 { transition-delay: 0.25s !important; }
+  .reveal-d3 { transition-delay: 0.4s !important; }
+  .reveal-d4 { transition-delay: 0.55s !important; }
+  .reveal-d5 { transition-delay: 0.7s !important; }
+  .reveal-d6 { transition-delay: 0.85s !important; }
+
+  .reveal-scale {
+    opacity: 0;
+    transform: scale(0.85);
+    transition: opacity 0.8s cubic-bezier(0.16, 1, 0.3, 1),
+                transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .reveal-scale.visible {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  .reveal-left {
+    opacity: 0;
+    transform: translateX(-60px);
+    transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+                transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .reveal-left.visible {
+    opacity: 1;
+    transform: translateX(0);
+  }
+
+  .reveal-right {
+    opacity: 0;
+    transform: translateX(60px);
+    transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+                transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .reveal-right.visible {
+    opacity: 1;
+    transform: translateX(0);
+  }
+
+  /* ── Typography ──────────────────────────────────────── */
+  .slide-number {
+    position: absolute;
+    top: 2rem;
+    right: 2.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+    color: var(--text-dim);
+    letter-spacing: 0.1em;
+  }
+
+  h1 {
+    font-size: clamp(2.5rem, 6vw, 5rem);
+    font-weight: 900;
+    line-height: 1.1;
+    letter-spacing: -0.03em;
+  }
+
+  h2 {
+    font-size: clamp(1.8rem, 3.5vw, 3rem);
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+  }
+
+  h3 {
+    font-size: clamp(1.2rem, 2vw, 1.5rem);
+    font-weight: 600;
+    line-height: 1.3;
+  }
+
+  .subtitle {
+    font-size: clamp(1rem, 2vw, 1.35rem);
+    color: var(--text-muted);
+    font-weight: 300;
+    margin-top: 0.75rem;
+    max-width: 50ch;
+  }
+
+  .label {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  /* ── Decorative Elements ─────────────────────────────── */
+  .glow-orb {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(120px);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .grid-bg {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(124, 92, 252, 0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(124, 92, 252, 0.03) 1px, transparent 1px);
+    background-size: 60px 60px;
+    pointer-events: none;
+  }
+
+  /* ── Cards ───────────────────────────────────────────── */
+  .card {
+    background: var(--bg-card);
+    border: 1px solid rgba(124, 92, 252, 0.12);
+    border-radius: 12px;
+    padding: 1.75rem;
+    transition: border-color 0.3s, box-shadow 0.3s;
+  }
+  .card:hover {
+    border-color: rgba(124, 92, 252, 0.3);
+    box-shadow: 0 0 30px var(--accent-glow);
+  }
+
+  .card-grid {
+    display: grid;
+    gap: 1.25rem;
+  }
+  .card-grid-2 { grid-template-columns: repeat(2, 1fr); }
+  .card-grid-3 { grid-template-columns: repeat(3, 1fr); }
+
+  /* ── Code Blocks ─────────────────────────────────────── */
+  .code-block {
+    background: #0d0f16;
+    border: 1px solid rgba(124, 92, 252, 0.15);
+    border-radius: 8px;
+    padding: 1.25rem 1.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    line-height: 1.7;
+    overflow-x: auto;
+    position: relative;
+  }
+  .code-block .comment { color: var(--text-dim); }
+  .code-block .keyword { color: var(--accent); }
+  .code-block .string { color: var(--success); }
+  .code-block .fn { color: var(--accent-secondary); }
+  .code-block .num { color: var(--warning); }
+
+  .code-lang {
+    position: absolute;
+    top: 0.6rem;
+    right: 0.8rem;
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  /* ── Flow Diagram ────────────────────────────────────── */
+  .flow {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .flow-node {
+    background: var(--bg-card);
+    border: 1px solid rgba(124, 92, 252, 0.2);
+    border-radius: 10px;
+    padding: 1rem 1.5rem;
+    text-align: center;
+    min-width: 160px;
+    transition: transform 0.3s, box-shadow 0.3s;
+  }
+  .flow-node:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 30px var(--accent-glow);
+  }
+  .flow-node.highlighted {
+    border-color: var(--accent);
+    box-shadow: 0 0 20px var(--accent-glow);
+  }
+  .flow-arrow {
+    font-size: 1.5rem;
+    color: var(--text-dim);
+    padding: 0 0.5rem;
+    flex-shrink: 0;
+  }
+  .flow-vertical {
+    flex-direction: column;
+  }
+  .flow-vertical .flow-arrow {
+    transform: none;
+    padding: 0.3rem 0;
+  }
+
+  /* ── Badges / Tags ───────────────────────────────────── */
+  .badge {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    padding: 0.2em 0.6em;
+    border-radius: 4px;
+    text-transform: uppercase;
+  }
+  .badge-danger { background: rgba(244, 63, 94, 0.15); color: var(--danger); }
+  .badge-warning { background: rgba(251, 191, 36, 0.15); color: var(--warning); }
+  .badge-success { background: rgba(52, 211, 153, 0.15); color: var(--success); }
+  .badge-info { background: rgba(56, 189, 248, 0.15); color: var(--accent-secondary); }
+
+  /* ── Table ───────────────────────────────────────────── */
+  .styled-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+  }
+  .styled-table th {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    text-align: left;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid rgba(124, 92, 252, 0.15);
+  }
+  .styled-table td {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    vertical-align: top;
+  }
+  .styled-table tr:hover td {
+    background: rgba(124, 92, 252, 0.04);
+  }
+
+  /* ── Big Number / Stat ───────────────────────────────── */
+  .stat {
+    text-align: center;
+  }
+  .stat-value {
+    font-size: clamp(2.5rem, 5vw, 4rem);
+    font-weight: 900;
+    letter-spacing: -0.03em;
+    line-height: 1;
+  }
+  .stat-label {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-top: 0.5rem;
+  }
+
+  /* ── Accent colors for stat values ───────────────────── */
+  .text-accent { color: var(--accent); }
+  .text-danger { color: var(--danger); }
+  .text-warning { color: var(--warning); }
+  .text-success { color: var(--success); }
+  .text-info { color: var(--accent-secondary); }
+
+  /* ── Navigation Dots ─────────────────────────────────── */
+  .nav-dots {
+    position: fixed;
+    right: 1.5rem;
+    top: 50%;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    z-index: 100;
+  }
+  .nav-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    border: none;
+    cursor: pointer;
+    transition: background 0.3s, transform 0.3s, box-shadow 0.3s;
+    padding: 0;
+  }
+  .nav-dot.active {
+    background: var(--accent);
+    transform: scale(1.4);
+    box-shadow: 0 0 10px var(--accent-glow);
+  }
+  .nav-dot:hover:not(.active) {
+    background: var(--text-muted);
+    transform: scale(1.2);
+  }
+
+  /* ── Keyboard hint ───────────────────────────────────── */
+  .key-hint {
+    position: fixed;
+    bottom: 1.5rem;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    opacity: 0.5;
+    z-index: 100;
+    transition: opacity 0.5s;
+  }
+
+  /* ── NEW: Layout Variants ────────────────────────────── */
+  .slide-hero {
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+  }
+  .slide-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 3rem;
+    align-items: center;
+  }
+  .slide-narrative {
+    display: grid;
+    grid-template-columns: 3fr 2fr;
+    gap: 3rem;
+    align-items: center;
+  }
+  .slide-content { position: relative; z-index: 1; }
+
+  /* ── NEW: Flip Cards ─────────────────────────────────── */
+  .flip-card {
+    perspective: 1000px;
+    cursor: pointer;
+  }
+  .flip-card-inner {
+    position: relative;
+    width: 100%;
+    transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+    transform-style: preserve-3d;
+  }
+  .flip-card.flipped .flip-card-inner {
+    transform: rotateY(180deg);
+  }
+  .flip-card-front {
+    position: relative;
+    backface-visibility: hidden;
+    border-radius: 12px;
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    min-height: 200px;
+    background: var(--bg-card);
+    border: 1px solid rgba(124, 92, 252, 0.12);
+  }
+  .flip-card-back {
+    position: absolute;
+    inset: 0;
+    backface-visibility: hidden;
+    border-radius: 12px;
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    background: #0d0f16;
+    border: 1px solid rgba(124, 92, 252, 0.25);
+    transform: rotateY(180deg);
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    line-height: 1.6;
+    color: var(--text-muted);
+    overflow-y: auto;
+  }
+  .flip-card-front .label { margin-bottom: 0.3rem; }
+  .flip-card-front p { color: var(--text-muted); font-size: 0.85rem; margin-top: auto; }
+  .flip-hint { font-size: 0.65rem; color: var(--text-dim); margin-top: auto; text-align: right; }
+
+  /* ── NEW: Expandable Rows ────────────────────────────── */
+  .expandable-row {
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .expandable-row:hover {
+    background: rgba(124, 92, 252, 0.04);
+  }
+  .expandable-row-header {
+    display: grid;
+    grid-template-columns: 80px 1fr 90px 24px;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    gap: 0.75rem;
+    font-size: 0.9rem;
+  }
+  .expandable-row-detail {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    background: rgba(0,0,0,0.2);
+    border-left: 2px solid var(--accent);
+    margin: 0 1rem;
+    border-radius: 0 0 8px 8px;
+  }
+  .expandable-row.expanded .expandable-row-detail {
+    max-height: 300px;
+    padding: 1rem;
+    margin-bottom: 0.5rem;
+  }
+  .expand-icon {
+    transition: transform 0.3s;
+    color: var(--text-dim);
+    font-size: 0.75rem;
+  }
+  .expandable-row.expanded .expand-icon {
+    transform: rotate(90deg);
+  }
+
+  /* ── NEW: Toggle Buttons ─────────────────────────────── */
+  .toggle-group {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .toggle-btn {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    padding: 0.5em 1.2em;
+    border-radius: 6px;
+    border: 1px solid rgba(124, 92, 252, 0.3);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .toggle-btn.active {
+    background: var(--accent);
+    color: white;
+    border-color: var(--accent);
+    box-shadow: 0 0 15px var(--accent-glow);
+  }
+  .toggle-btn:hover:not(.active) {
+    border-color: var(--accent);
+    color: var(--text);
+  }
+
+  /* ── NEW: Constraint List ────────────────────────────── */
+  .constraint-list {
+    list-style: none;
+    counter-reset: constraint;
+    max-width: 900px;
+  }
+  .constraint-list li {
+    counter-increment: constraint;
+    padding: 0.6rem 0 0.6rem 2.5rem;
+    position: relative;
+    color: var(--text-muted);
+    font-size: 0.88rem;
+    line-height: 1.55;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+  }
+  .constraint-list li::before {
+    content: counter(constraint);
+    position: absolute;
+    left: 0;
+    top: 0.6rem;
+    font-family: var(--font-mono);
+    font-weight: 700;
+    font-size: 0.8rem;
+    color: var(--accent);
+  }
+  .constraint-list li strong { color: var(--text); }
+
+  /* ── NEW: Takeaway Blocks ────────────────────────────── */
+  .takeaway {
+    background: var(--bg-card);
+    border: 1px solid rgba(124, 92, 252, 0.12);
+    border-radius: 12px;
+    padding: 1.2rem 1.5rem 1.2rem 4rem;
+    position: relative;
+  }
+  .takeaway-num {
+    position: absolute;
+    left: 1.25rem;
+    top: 1.25rem;
+    font-family: var(--font-mono);
+    font-size: 1.5rem;
+    font-weight: 900;
+    color: var(--accent);
+    opacity: 0.5;
+  }
+
+  /* ── NEW: Validation row ─────────────────────────────── */
+  .validation-header {
+    grid-template-columns: 80px 1fr 60px 120px 24px;
+  }
+  .check-mark { color: var(--success); font-weight: 700; }
+
+  /* ── SVG diagram container ───────────────────────────── */
+  .svg-diagram { width: 100%; max-width: 550px; margin: 0 auto; }
+  .svg-diagram svg { width: 100%; height: auto; }
+
+  /* ── Responsive ──────────────────────────────────────── */
+  @media (max-width: 768px) {
+    .card-grid-2, .card-grid-3 { grid-template-columns: 1fr; }
+    .flow { flex-direction: column; }
+    .flow-arrow { transform: rotate(90deg); }
+    .slide-split, .slide-narrative { grid-template-columns: 1fr; gap: 1.5rem; }
+    .expandable-row-header { grid-template-columns: 60px 1fr 70px 20px; font-size: 0.8rem; }
+    .validation-header { grid-template-columns: 60px 1fr 40px 90px 20px; }
+    .flip-card { height: 170px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .reveal, .reveal-scale, .reveal-left, .reveal-right {
+      opacity: 1 !important;
+      transform: none !important;
+      transition: none !important;
+    }
+  }
+
+  @media print {
+    html { scroll-snap-type: none; }
+    .slide { min-height: auto; page-break-after: always; padding: 2rem; }
+    .nav-dots, .key-hint { display: none; }
+    .expandable-row-detail { max-height: none !important; padding: 1rem !important; }
+    .flip-card-inner { transform: none !important; }
+    .flip-card-back { position: relative; transform: none; display: block; margin-top: 0.5rem; }
+    .toggle-btn { display: none; }
+    .reveal, .reveal-scale, .reveal-left, .reveal-right { opacity: 1 !important; transform: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Navigation dots -->
+<nav class="nav-dots" id="navDots"></nav>
+<div class="key-hint">&#8593; &#8595; arrows &middot; space &middot; scroll</div>
+
+<!-- ════════════════════════════════════════════════════════
+     SLIDE 1 — The Question (Hero)
+     ════════════════════════════════════════════════════════ -->
+<section class="slide slide-hero" data-title="The Question">
+  <div class="grid-bg"></div>
+  <div class="glow-orb" style="width:600px;height:600px;background:var(--accent);opacity:0.07;top:-200px;right:-100px;"></div>
+  <div class="glow-orb" style="width:400px;height:400px;background:var(--accent-secondary);opacity:0.05;bottom:-150px;left:-50px;"></div>
+
+  <div class="slide-content">
+    <div class="reveal reveal-d1">
+      <span class="label">OWASP A06: Insecure Design</span>
+    </div>
+    <h1 class="reveal reveal-d2" style="margin-top:1rem;">
+      Can an LLM find design flaws<br>in code it can't read?
+    </h1>
+    <p class="subtitle reveal reveal-d3" style="margin-left:auto;margin-right:auto;text-align:center;max-width:50ch;">
+      LLMs review code one file at a time. Design flaws live between files.
+    </p>
+    <div class="reveal reveal-d4" style="margin-top:2.5rem; display:flex; gap:1rem; flex-wrap:wrap; justify-content:center;">
+      <span class="badge badge-info">Joern CPG</span>
+      <span class="badge badge-warning">Express + Sequelize</span>
+      <span class="badge badge-danger">OWASP A06</span>
+      <span class="badge badge-success">LLM-Assisted</span>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════
+     SLIDE 2 — The Keyhole Problem
+     ════════════════════════════════════════════════════════ -->
+<section class="slide" data-title="Keyhole Problem">
+  <span class="slide-number">02</span>
+  <div class="grid-bg"></div>
+
+  <div class="slide-narrative" style="padding:0;">
+    <div class="reveal-left">
+      <h2>The keyhole problem</h2>
+      <p class="subtitle" style="max-width:none;">
+        LLMs see code through a keyhole: one file, one function, one context window at a time.
+      </p>
+      <ul style="color:var(--text-muted); font-size:0.9rem; margin-top:1.5rem; padding-left:1.2rem; display:flex; flex-direction:column; gap:0.6rem;">
+        <li><strong style="color:var(--success)">Local bugs</strong> are visible, since an SQL injection lives in one function</li>
+        <li><strong style="color:var(--danger)">Design flaws</strong> are cross-cutting: they live in <em>relationships</em> between components</li>
+        <li>"No auth on this route" requires knowing all routes, all middleware, and which routes <em>lack</em> it</li>
+        <li>Design flaws are defined by <strong style="color:var(--text)">absence</strong> and <strong style="color:var(--text)">relationships</strong></li>
+      </ul>
+    </div>
+    <div class="reveal-right reveal-d2">
+      <div class="svg-diagram">
+        <svg viewBox="0 0 300 320" xmlns="http://www.w3.org/2000/svg">
+          <!-- Code grid -->
+          <g opacity="0.3">
+            <rect x="10" y="10" width="52" height="52" rx="4" fill="#1e2030" stroke="#64748b" stroke-width="0.5"/>
+            <rect x="68" y="10" width="52" height="52" rx="4" fill="#1e2030" stroke="#64748b" stroke-width="0.5"/>
+            <rect x="126" y="10" width="52" height="52" rx="4" fill="#1e2030" stroke="#64748b" stroke-width="0.5"/>
+            <rect x="184" y="10" width="52" height="52" rx="4" fill="#1e2030" stroke="#64748b" stroke-width="0.5"/>
+            <rect x="242" y="10" width="52" height="52" rx="4" fill="#1e2030" stroke="#64748b" stroke-width="0.5"/>
+            <rect x="10" y="68" width="52" height="52" rx="4" fill="#1e2030" stroke="#64748b" stroke-width="0.5"/>
+            <rect x="68" y="68" width="52" height="52" rx="4" fill="#1e2030" stroke="#64748b" stroke-width="0.5"/>
+            <rect x="126" y="68" width="52" height="52" rx="4" fill="#1e2030" stroke="#64748b" stroke-width="0.5"/>
+            <rect x="184" y="68" width="52" height="52" rx="4" fill="#1e2030" stroke="#64748b" stroke-width="0.5"/>
+            <rect x="242" y="68" width="52" height="52" rx="4" fill="#1e2030" stroke="#64748b" stroke-width="0.5"/>
+            <rect x="10" y="126" width="52" height="52" rx="4" fill="#1e2030" stroke="#64748b" stroke-width="0.5"/>
+            <rect x="68" y="126" width="52" height="52" rx="4" fill="#1e2030" stroke="#64748b" stroke-width="0.5"/>
+            <rect x="126" y="126" width="52" height="52" rx="4" fill="#1e2030" stroke="#64748b" stroke-width="0.5"/>
+            <rect x="184" y="126" width="52" height="52" rx="4" fill="#1e2030" stroke="#64748b" stroke-width="0.5"/>
+            <rect x="242" y="126" width="52" height="52" rx="4" fill="#1e2030" stroke="#64748b" stroke-width="0.5"/>
+            <rect x="10" y="184" width="52" height="52" rx="4" fill="#1e2030" stroke="#64748b" stroke-width="0.5"/>
+            <rect x="68" y="184" width="52" height="52" rx="4" fill="#1e2030" stroke="#64748b" stroke-width="0.5"/>
+            <rect x="126" y="184" width="52" height="52" rx="4" fill="#1e2030" stroke="#64748b" stroke-width="0.5"/>
+            <rect x="184" y="184" width="52" height="52" rx="4" fill="#1e2030" stroke="#64748b" stroke-width="0.5"/>
+            <rect x="242" y="184" width="52" height="52" rx="4" fill="#1e2030" stroke="#64748b" stroke-width="0.5"/>
+            <rect x="10" y="242" width="52" height="52" rx="4" fill="#1e2030" stroke="#64748b" stroke-width="0.5"/>
+            <rect x="68" y="242" width="52" height="52" rx="4" fill="#1e2030" stroke="#64748b" stroke-width="0.5"/>
+            <rect x="126" y="242" width="52" height="52" rx="4" fill="#1e2030" stroke="#64748b" stroke-width="0.5"/>
+            <rect x="184" y="242" width="52" height="52" rx="4" fill="#1e2030" stroke="#64748b" stroke-width="0.5"/>
+            <rect x="242" y="242" width="52" height="52" rx="4" fill="#1e2030" stroke="#64748b" stroke-width="0.5"/>
+          </g>
+          <!-- Design flaw spanning multiple cells (red borders) -->
+          <rect x="68" y="10" width="52" height="52" rx="4" fill="none" stroke="#f43f5e" stroke-width="2" opacity="0.6"/>
+          <rect x="68" y="68" width="52" height="52" rx="4" fill="none" stroke="#f43f5e" stroke-width="2" opacity="0.6"/>
+          <rect x="126" y="68" width="52" height="52" rx="4" fill="none" stroke="#f43f5e" stroke-width="2" opacity="0.6"/>
+          <rect x="184" y="126" width="52" height="52" rx="4" fill="none" stroke="#f43f5e" stroke-width="2" opacity="0.6"/>
+          <rect x="242" y="184" width="52" height="52" rx="4" fill="none" stroke="#f43f5e" stroke-width="2" opacity="0.6"/>
+          <rect x="242" y="242" width="52" height="52" rx="4" fill="none" stroke="#f43f5e" stroke-width="2" opacity="0.6"/>
+          <!-- Connecting lines between flaw cells -->
+          <line x1="94" y1="62" x2="94" y2="68" stroke="#f43f5e" stroke-width="1.5" opacity="0.4"/>
+          <line x1="120" y1="94" x2="126" y2="94" stroke="#f43f5e" stroke-width="1.5" opacity="0.4"/>
+          <line x1="178" y1="94" x2="210" y2="126" stroke="#f43f5e" stroke-width="1.5" opacity="0.4"/>
+          <line x1="236" y1="152" x2="268" y2="184" stroke="#f43f5e" stroke-width="1.5" opacity="0.4"/>
+          <line x1="268" y1="236" x2="268" y2="242" stroke="#f43f5e" stroke-width="1.5" opacity="0.4"/>
+          <!-- Spotlight circle (small, can only see one cell) -->
+          <circle cx="94" cy="94" r="40" fill="none" stroke="#7c5cfc" stroke-width="2" opacity="0.8"/>
+          <circle cx="94" cy="94" r="40" fill="#7c5cfc" opacity="0.05"/>
+          <!-- Labels -->
+          <text x="150" y="312" text-anchor="middle" fill="#64748b" font-family="Inter,sans-serif" font-size="11">Design flaw spans 6 cells, spotlight sees 1</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════
+     SLIDE 3 — The Landscape
+     ════════════════════════════════════════════════════════ -->
+<section class="slide" data-title="Landscape">
+  <span class="slide-number">03</span>
+
+  <h2 class="reveal">Three approaches, three blind spots</h2>
+  <p class="subtitle reveal reveal-d1">
+    Bug finding is a solved problem. Design analysis is not. Design flaws require
+    negative queries (what's missing?) and cross-file relationship analysis (what connects to what?).
+  </p>
+
+  <div class="slide-narrative reveal-scale reveal-d2" style="margin-top:2rem; padding:0; max-width:1100px;">
+    <div>
+      <div class="card-grid" style="gap:1rem;">
+        <div class="card" style="border-top: 2px solid var(--accent-secondary); padding:1.25rem;">
+          <h3 style="color:var(--accent-secondary); font-size:1.1rem;">LLM reads code</h3>
+          <p style="color:var(--text-muted); font-size:0.85rem; margin-top:0.4rem;">
+            Understands intent, finds local bugs. But can't hold architecture. It sees one file at a time.
+          </p>
+        </div>
+        <div class="card" style="border-top: 2px solid var(--success); padding:1.25rem;">
+          <h3 style="color:var(--success); font-size:1.1rem;">SAST (Semgrep)</h3>
+          <p style="color:var(--text-muted); font-size:0.85rem; margin-top:0.4rem;">
+            Sees entire codebase, 3,000+ rules for injection &amp; XSS. No semantic reasoning. It can't ask "why is this wrong?"
+          </p>
+        </div>
+        <div class="card" style="border-top: 2px solid var(--danger); padding:1.25rem;">
+          <h3 style="color:var(--danger); font-size:1.1rem;">The gap</h3>
+          <p style="color:var(--text-muted); font-size:0.85rem; margin-top:0.4rem;">
+            Pattern matchers can't express "find all routes that do NOT have auth middleware."
+            <strong style="color:var(--text);">Design analysis needs something else.</strong>
+          </p>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="svg-diagram" style="max-width:100%;">
+        <svg viewBox="0 0 380 320" xmlns="http://www.w3.org/2000/svg">
+          <!-- LLM circle -->
+          <circle cx="125" cy="100" r="85" fill="rgba(56,189,248,0.08)" stroke="#38bdf8" stroke-width="1.5"/>
+          <text x="72" y="72" fill="#38bdf8" font-family="Inter,sans-serif" font-size="14" font-weight="600">LLM</text>
+          <text x="60" y="90" fill="#94a3b8" font-family="Inter,sans-serif" font-size="10">Semantics</text>
+          <!-- SAST circle -->
+          <circle cx="255" cy="100" r="85" fill="rgba(52,211,153,0.08)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="290" y="72" fill="#34d399" font-family="Inter,sans-serif" font-size="14" font-weight="600">SAST</text>
+          <text x="290" y="90" fill="#94a3b8" font-family="Inter,sans-serif" font-size="10">Coverage</text>
+          <!-- Overlap label — in the LLM/SAST intersection -->
+          <text x="190" y="95" fill="#e2e8f0" font-family="Inter,sans-serif" font-size="11" text-anchor="middle">Bug finding</text>
+          <text x="190" y="110" fill="#94a3b8" font-family="Inter,sans-serif" font-size="10" text-anchor="middle">(solved)</text>
+          <!-- CPG circle (dashed) — below, bridging both -->
+          <circle cx="190" cy="218" r="72" fill="rgba(124,92,252,0.06)" stroke="#7c5cfc" stroke-width="1.5" stroke-dasharray="6 4"/>
+          <text x="190" y="210" fill="#7c5cfc" font-family="Inter,sans-serif" font-size="14" font-weight="600" text-anchor="middle">CPG</text>
+          <text x="190" y="228" fill="#94a3b8" font-family="Inter,sans-serif" font-size="10" text-anchor="middle">Structure + Flow</text>
+          <!-- Design analysis label — outside LLM/SAST, inside CPG -->
+          <text x="190" y="252" fill="#f43f5e" font-family="Inter,sans-serif" font-size="11" text-anchor="middle" font-weight="600">Design analysis</text>
+          <!-- Question mark — can CPG bridge the gap? -->
+          <text x="190" y="170" fill="#7c5cfc" font-family="Inter,sans-serif" font-size="16" text-anchor="middle" font-weight="700">?</text>
+          <!-- Caption -->
+          <text x="190" y="310" fill="#64748b" font-family="Inter,sans-serif" font-size="10" text-anchor="middle">LLM and SAST overlap on bugs. Design flaws live below. Can a CPG reach them?</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════
+     SLIDE 4 — What is a CPG?
+     ════════════════════════════════════════════════════════ -->
+<section class="slide" data-title="CPG Explained">
+  <span class="slide-number">04</span>
+  <div class="glow-orb" style="width:500px;height:500px;background:var(--accent);opacity:0.06;top:50%;left:50%;transform:translate(-50%,-50%);"></div>
+
+  <div class="slide-narrative" style="padding:0;">
+    <div class="reveal-left">
+      <h2>Three graphs, merged into one</h2>
+      <p class="subtitle" style="max-width:none;">
+        A Code Property Graph overlays three views of the same code. Together they capture
+        structure, control flow, and data movement: 443,000 nodes for the target app.
+      </p>
+      <div style="display:flex; flex-direction:column; gap:1rem; margin-top:1.5rem;">
+        <div style="display:flex; align-items:flex-start; gap:0.7rem;">
+          <span style="color:#7c5cfc; font-weight:700; font-size:0.85rem; min-width:3rem;">AST</span>
+          <span style="color:var(--text-muted); font-size:0.88rem;">
+            <strong style="color:var(--text)">Abstract Syntax Tree</strong>: the code&rsquo;s grammatical structure.
+            Functions contain parameters, if-statements contain branches. This is what your editor sees.
+          </span>
+        </div>
+        <div style="display:flex; align-items:flex-start; gap:0.7rem;">
+          <span style="color:#38bdf8; font-weight:700; font-size:0.85rem; min-width:3rem;">CFG</span>
+          <span style="color:var(--text-muted); font-size:0.88rem;">
+            <strong style="color:var(--text)">Control Flow Graph</strong>: the possible execution paths.
+            Which branch runs after the if? Where does the loop return? Dashed blue lines trace every route the program can take.
+          </span>
+        </div>
+        <div style="display:flex; align-items:flex-start; gap:0.7rem;">
+          <span style="color:#34d399; font-weight:700; font-size:0.85rem; min-width:3rem;">PDG</span>
+          <span style="color:var(--text-muted); font-size:0.88rem;">
+            <strong style="color:var(--text)">Program Dependence Graph</strong>: where data actually flows.
+            A parameter feeds into a function call three levels away. Green lines reveal the invisible wiring that makes taint analysis possible.
+          </span>
+        </div>
+      </div>
+      <div class="toggle-group reveal reveal-d3" style="margin-top:1.5rem;">
+        <button class="toggle-btn" data-layer="ast" onclick="toggleCPG('ast')">AST</button>
+        <button class="toggle-btn" data-layer="cfg" onclick="toggleCPG('cfg')">CFG</button>
+        <button class="toggle-btn" data-layer="pdg" onclick="toggleCPG('pdg')">PDG</button>
+        <button class="toggle-btn active" data-layer="all" onclick="toggleCPG('all')">All</button>
+      </div>
+    </div>
+    <div class="reveal-right reveal-d2">
+      <div class="svg-diagram" style="max-width:100%;">
+        <svg viewBox="0 0 600 280" xmlns="http://www.w3.org/2000/svg" id="cpgDiagram">
+          <!-- AST Layer (purple) -->
+          <g id="cpg-ast">
+            <rect x="250" y="20" width="100" height="30" rx="6" fill="rgba(124,92,252,0.15)" stroke="#7c5cfc" stroke-width="1.5"/>
+            <text x="300" y="40" text-anchor="middle" fill="#7c5cfc" font-family="JetBrains Mono,monospace" font-size="11">function</text>
+            <rect x="120" y="80" width="80" height="26" rx="6" fill="rgba(124,92,252,0.1)" stroke="#7c5cfc" stroke-width="1"/>
+            <text x="160" y="98" text-anchor="middle" fill="#7c5cfc" font-family="JetBrains Mono,monospace" font-size="10">params</text>
+            <rect x="260" y="80" width="80" height="26" rx="6" fill="rgba(124,92,252,0.1)" stroke="#7c5cfc" stroke-width="1"/>
+            <text x="300" y="98" text-anchor="middle" fill="#7c5cfc" font-family="JetBrains Mono,monospace" font-size="10">if-stmt</text>
+            <rect x="400" y="80" width="80" height="26" rx="6" fill="rgba(124,92,252,0.1)" stroke="#7c5cfc" stroke-width="1"/>
+            <text x="440" y="98" text-anchor="middle" fill="#7c5cfc" font-family="JetBrains Mono,monospace" font-size="10">call</text>
+            <rect x="200" y="140" width="80" height="26" rx="6" fill="rgba(124,92,252,0.08)" stroke="#7c5cfc" stroke-width="0.8"/>
+            <text x="240" y="158" text-anchor="middle" fill="#7c5cfc" font-family="JetBrains Mono,monospace" font-size="10">then</text>
+            <rect x="320" y="140" width="80" height="26" rx="6" fill="rgba(124,92,252,0.08)" stroke="#7c5cfc" stroke-width="0.8"/>
+            <text x="360" y="158" text-anchor="middle" fill="#7c5cfc" font-family="JetBrains Mono,monospace" font-size="10">else</text>
+            <rect x="440" y="140" width="80" height="26" rx="6" fill="rgba(124,92,252,0.08)" stroke="#7c5cfc" stroke-width="0.8"/>
+            <text x="480" y="158" text-anchor="middle" fill="#7c5cfc" font-family="JetBrains Mono,monospace" font-size="10">args</text>
+            <!-- AST edges -->
+            <line x1="300" y1="50" x2="160" y2="80" stroke="#7c5cfc" stroke-width="1" opacity="0.5"/>
+            <line x1="300" y1="50" x2="300" y2="80" stroke="#7c5cfc" stroke-width="1" opacity="0.5"/>
+            <line x1="300" y1="50" x2="440" y2="80" stroke="#7c5cfc" stroke-width="1" opacity="0.5"/>
+            <line x1="300" y1="106" x2="240" y2="140" stroke="#7c5cfc" stroke-width="1" opacity="0.5"/>
+            <line x1="300" y1="106" x2="360" y2="140" stroke="#7c5cfc" stroke-width="1" opacity="0.5"/>
+            <line x1="440" y1="106" x2="480" y2="140" stroke="#7c5cfc" stroke-width="1" opacity="0.5"/>
+          </g>
+          <!-- CFG Layer (blue) -->
+          <g id="cpg-cfg">
+            <path d="M160 106 C160 125, 240 125, 240 140" stroke="#38bdf8" stroke-width="2" fill="none" stroke-dasharray="4 3" opacity="0.7"/>
+            <path d="M300 106 C300 118, 360 118, 360 140" stroke="#38bdf8" stroke-width="2" fill="none" stroke-dasharray="4 3" opacity="0.7"/>
+            <path d="M240 166 C240 200, 440 200, 440 166" stroke="#38bdf8" stroke-width="2" fill="none" stroke-dasharray="4 3" opacity="0.7"/>
+            <text x="340" y="210" fill="#38bdf8" font-family="Inter,sans-serif" font-size="9" text-anchor="middle">control flow</text>
+            <circle cx="240" cy="140" r="3" fill="#38bdf8" opacity="0.7"/>
+            <circle cx="360" cy="140" r="3" fill="#38bdf8" opacity="0.7"/>
+          </g>
+          <!-- PDG Layer (green) -->
+          <g id="cpg-pdg">
+            <path d="M160 106 C100 140, 100 180, 240 166" stroke="#34d399" stroke-width="2" fill="none" opacity="0.6"/>
+            <path d="M160 106 C80 160, 80 200, 480 166" stroke="#34d399" stroke-width="2" fill="none" opacity="0.5"/>
+            <text x="80" y="180" fill="#34d399" font-family="Inter,sans-serif" font-size="9">data flow</text>
+            <circle cx="240" cy="166" r="3" fill="#34d399" opacity="0.6"/>
+            <circle cx="480" cy="166" r="3" fill="#34d399" opacity="0.5"/>
+          </g>
+          <!-- Legend -->
+          <rect x="30" y="240" width="12" height="3" fill="#7c5cfc"/>
+          <text x="48" y="244" fill="#7c5cfc" font-family="Inter,sans-serif" font-size="10">AST (structure)</text>
+          <line x1="170" y1="242" x2="182" y2="242" stroke="#38bdf8" stroke-width="2" stroke-dasharray="4 3"/>
+          <text x="188" y="244" fill="#38bdf8" font-family="Inter,sans-serif" font-size="10">CFG (execution)</text>
+          <line x1="340" y1="242" x2="352" y2="242" stroke="#34d399" stroke-width="2"/>
+          <text x="358" y="244" fill="#34d399" font-family="Inter,sans-serif" font-size="10">PDG (data flow)</text>
+        </svg>
+      </div>
+      <p style="color:var(--text-muted); font-size:0.78rem; text-align:center; margin-top:0.5rem; font-style:italic;">
+        Toggle each layer to see how structure, execution paths, and data flow overlay on the same code.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════
+     SLIDE 5 — The Toolkit
+     ════════════════════════════════════════════════════════ -->
+<section class="slide" data-title="Toolkit">
+  <span class="slide-number">05</span>
+  <div class="grid-bg"></div>
+
+  <h2 class="reveal" style="text-align:center;">Two tools, two levels of abstraction</h2>
+
+  <div class="slide-split reveal-scale reveal-d2" style="margin-top:2rem; max-width:1000px; margin-left:auto; margin-right:auto; padding:0;">
+    <div class="card" style="border-top: 2px solid var(--accent);">
+      <h3 style="color:var(--accent); margin-bottom:0.5rem;">Joern</h3>
+      <span class="label">CPG Engine</span>
+      <ul style="color:var(--text-muted); font-size:0.85rem; margin-top:1rem; padding-left:1rem; display:flex; flex-direction:column; gap:0.5rem;">
+        <li><strong style="color:var(--text)">Expression-level:</strong> every call, every argument, every data flow</li>
+        <li><strong style="color:var(--text)">Query language:</strong> CPGQL (Scala-based traversals)</li>
+        <li><strong style="color:var(--text)">Strengths:</strong> negative sub-traversals, taint analysis, get_source</li>
+      </ul>
+      <div style="margin-top:1rem; padding:0.6rem 0.8rem; background:rgba(124,92,252,0.08); border-radius:6px; font-size:0.85rem; color:var(--accent);">
+        Answered all 20 questions (11 solo)
+      </div>
+    </div>
+    <div class="card" style="border-top: 2px solid var(--accent-secondary);">
+      <h3 style="color:var(--accent-secondary); margin-bottom:0.5rem;">GitNexus</h3>
+      <span class="label">Code Knowledge Graph</span>
+      <ul style="color:var(--text-muted); font-size:0.85rem; margin-top:1rem; padding-left:1rem; display:flex; flex-direction:column; gap:0.5rem;">
+        <li><strong style="color:var(--text)">Symbol-level:</strong> functions, files, relationships, modules</li>
+        <li><strong style="color:var(--text)">Query language:</strong> Cypher + semantic search</li>
+        <li><strong style="color:var(--text)">Strengths:</strong> blast radius, community detection, execution flows</li>
+      </ul>
+      <div style="margin-top:1rem; padding:0.6rem 0.8rem; background:rgba(56,189,248,0.08); border-radius:6px; font-size:0.85rem; color:var(--accent-secondary);">
+        Contributed on 8 questions (architectural context)
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════
+     SLIDE 6 — The Bridge
+     ════════════════════════════════════════════════════════ -->
+<section class="slide" data-title="The Bridge">
+  <span class="slide-number">06</span>
+  <div class="glow-orb" style="width:500px;height:500px;background:var(--accent);opacity:0.05;bottom:-200px;left:-100px;"></div>
+
+  <div class="slide-narrative" style="padding:0;">
+    <div class="reveal-left">
+      <h2>The LLM doesn't read code. It queries the graph</h2>
+      <ul style="color:var(--text-muted); font-size:0.9rem; margin-top:1.5rem; padding-left:1.2rem; display:flex; flex-direction:column; gap:0.7rem;">
+        <li>The CPG encodes <strong style="color:var(--text)">cross-file relationships</strong> in a queryable form</li>
+        <li>The LLM formulates a question &rarr; Joern traverses &rarr; <strong style="color:var(--text)">short structured answer</strong></li>
+        <li><strong style="color:var(--accent)">Negative sub-traversals:</strong> find what's <em>missing</em>, not what's there</li>
+        <li>Pattern matchers can't express "find all routes that do NOT have auth middleware"</li>
+      </ul>
+      <p style="color:var(--text-muted); font-size:0.85rem; margin-top:1.5rem; font-style:italic; border-left:2px solid var(--accent); padding-left:1rem;">
+        The graph carries the cross-partition knowledge. The LLM provides the reasoning. Neither works alone.
+      </p>
+    </div>
+    <div class="reveal-right reveal-d2">
+      <div class="svg-diagram">
+        <svg viewBox="0 0 280 320" xmlns="http://www.w3.org/2000/svg">
+          <!-- Route node -->
+          <rect x="100" y="20" width="80" height="35" rx="8" fill="rgba(56,189,248,0.12)" stroke="#38bdf8" stroke-width="1.5"/>
+          <text x="140" y="42" text-anchor="middle" fill="#38bdf8" font-family="JetBrains Mono,monospace" font-size="10">app.get()</text>
+          <!-- Arrow down -->
+          <line x1="140" y1="55" x2="140" y2="85" stroke="#64748b" stroke-width="1.5"/>
+          <polygon points="135,82 140,90 145,82" fill="#64748b"/>
+          <!-- GAP (missing middleware) -->
+          <rect x="80" y="90" width="120" height="35" rx="8" fill="none" stroke="#f43f5e" stroke-width="2" stroke-dasharray="6 4"/>
+          <text x="140" y="112" text-anchor="middle" fill="#f43f5e" font-family="JetBrains Mono,monospace" font-size="9">no security.*</text>
+          <!-- Arrow down -->
+          <line x1="140" y1="125" x2="140" y2="155" stroke="#64748b" stroke-width="1.5"/>
+          <polygon points="135,152 140,160 145,152" fill="#64748b"/>
+          <!-- Handler node -->
+          <rect x="90" y="160" width="100" height="35" rx="8" fill="rgba(124,92,252,0.12)" stroke="#7c5cfc" stroke-width="1.5"/>
+          <text x="140" y="182" text-anchor="middle" fill="#7c5cfc" font-family="JetBrains Mono,monospace" font-size="10">handler()</text>
+          <!-- Arrow down -->
+          <line x1="140" y1="195" x2="140" y2="225" stroke="#64748b" stroke-width="1.5"/>
+          <polygon points="135,222 140,230 145,222" fill="#64748b"/>
+          <!-- DB Write node -->
+          <rect x="85" y="230" width="110" height="35" rx="8" fill="rgba(251,191,36,0.12)" stroke="#fbbf24" stroke-width="1.5"/>
+          <text x="140" y="252" text-anchor="middle" fill="#fbbf24" font-family="JetBrains Mono,monospace" font-size="10">db.update()</text>
+          <!-- CPGQL query pointer -->
+          <text x="225" y="112" fill="#f43f5e" font-family="Inter,sans-serif" font-size="9" font-weight="600">GAP</text>
+          <line x1="200" y1="108" x2="218" y2="108" stroke="#f43f5e" stroke-width="1" opacity="0.6"/>
+          <!-- Label -->
+          <text x="140" y="295" text-anchor="middle" fill="#94a3b8" font-family="Inter,sans-serif" font-size="10">The CPG makes absence queryable</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════
+     SLIDE 7 — Prior Art: LLMxCPG
+     ════════════════════════════════════════════════════════ -->
+<section class="slide" data-title="Prior Art">
+  <span class="slide-number">07</span>
+  <div class="grid-bg"></div>
+
+  <h2 class="reveal">LLMs can query the graph, but someone still has to point</h2>
+  <p class="subtitle reveal reveal-d1" style="margin-bottom:1.5rem;">
+    LLMxCPG (Lekssays et al., 2025) combines fine-tuned LLMs with Joern's CPG for vulnerability detection.
+  </p>
+
+  <div class="card-grid card-grid-2 reveal reveal-d2" style="max-width:900px; margin-bottom:2rem;">
+    <div class="card">
+      <h3 style="color:var(--success);">What it proved</h3>
+      <ul style="color:var(--text-muted); font-size:0.85rem; margin-top:0.5rem; padding-left:1rem; display:flex; flex-direction:column; gap:0.3rem;">
+        <li>CPGQL is learnable (but needs fine-tuning)</li>
+        <li>CPG slicing reduces code by 68&ndash;91%</li>
+        <li>15&ndash;40% F1 improvement over baselines</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3 style="color:var(--danger);">What it doesn't do</h3>
+      <ul style="color:var(--text-muted); font-size:0.85rem; margin-top:0.5rem; padding-left:1rem; display:flex; flex-direction:column; gap:0.3rem;">
+        <li>No architectural discovery</li>
+        <li>No negative queries ("what's missing?")</li>
+        <li>No whole-codebase analysis</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="reveal reveal-d3" style="max-width:900px;">
+    <div class="flow" style="font-size:0.85rem;">
+      <div class="flow-node" style="border-color:rgba(244,63,94,0.4); min-width:130px;">
+        <div style="font-size:0.7rem; color:var(--danger); font-weight:600;">HUMAN</div>
+        <strong style="font-size:0.8rem;">CWE + Code</strong>
+      </div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-node" style="min-width:100px;"><strong style="font-size:0.8rem;">LLMxCPG-Q</strong></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-node highlighted" style="min-width:80px;"><strong style="font-size:0.8rem;">Joern</strong></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-node" style="min-width:100px;"><strong style="font-size:0.8rem;">Code Slice</strong></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-node" style="min-width:100px;"><strong style="font-size:0.8rem;">LLMxCPG-D</strong></div>
+      <div class="flow-arrow">&rarr;</div>
+      <div class="flow-node" style="min-width:80px;"><strong style="font-size:0.8rem;">Vuln?</strong><div style="font-size:0.65rem; color:var(--text-muted); margin-top:0.2rem;">Yes / No</div></div>
+    </div>
+    <p style="text-align:center; margin-top:1rem; color:var(--danger); font-size:0.85rem;">
+      &uarr; The human provides the CWE and the code. The bottleneck remains
+    </p>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════
+     SLIDE 8 — The Method: Two Passes
+     ════════════════════════════════════════════════════════ -->
+<section class="slide" data-title="Method">
+  <span class="slide-number">08</span>
+  <div class="glow-orb" style="width:500px;height:500px;background:var(--accent);opacity:0.06;top:50%;left:50%;transform:translate(-50%,-50%);"></div>
+
+  <h2 class="reveal" style="text-align:center;">Two passes: learn the architecture, then find the flaws</h2>
+
+  <div class="reveal reveal-d1" style="max-width:700px; margin:2rem auto 0;">
+    <div class="flow flow-vertical">
+      <div class="flow-node" style="min-width:280px;">
+        <div class="label">Input</div>
+        <strong>Stack Profile</strong>
+        <div style="font-size:0.8rem; color:var(--text-muted);">package.json &rarr; Express, Sequelize, custom auth</div>
+      </div>
+      <div class="flow-arrow">&darr;</div>
+      <div class="flow-node highlighted" style="min-width:280px;">
+        <div class="label">Pass 1</div>
+        <strong>Generic Structural Queries</strong>
+        <div style="font-size:0.8rem; color:var(--text-muted);">9 questions: routes? middleware? validation?</div>
+      </div>
+      <div class="flow-arrow">&darr;</div>
+      <div class="flow-node" style="min-width:280px;">
+        <div class="label">LLM</div>
+        <strong>Structured facts &rarr; targeted CPGQL</strong>
+        <div style="font-size:0.8rem; color:var(--text-muted);">No source code, only query results</div>
+      </div>
+      <div class="flow-arrow">&darr;</div>
+      <div class="flow-node highlighted" style="min-width:280px;">
+        <div class="label">Pass 2</div>
+        <strong>Design Analysis</strong>
+        <div style="font-size:0.8rem; color:var(--text-muted);">8 CWEs, 11 queries &rarr; 30 findings</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card-grid card-grid-2 reveal reveal-d3" style="max-width:700px; margin:2rem auto 0;">
+    <div class="card" style="text-align:center; padding:1rem; border-color:rgba(244,63,94,0.2);">
+      <div style="font-size:0.75rem; color:var(--danger); font-weight:600;">LLMxCPG</div>
+      <div style="color:var(--text-muted); font-size:0.8rem; margin-top:0.3rem;">Human provides CWE + snippet</div>
+    </div>
+    <div class="card" style="text-align:center; padding:1rem; border-color:rgba(52,211,153,0.2);">
+      <div style="font-size:0.75rem; color:var(--success); font-weight:600;">OUR APPROACH</div>
+      <div style="color:var(--text-muted); font-size:0.8rem; margin-top:0.3rem;">Framework name only &rarr; discover everything</div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════
+     SLIDE 9 — Pass 1 Results (Flip Cards)
+     ════════════════════════════════════════════════════════ -->
+<section class="slide" data-title="Pass 1 Results">
+  <span class="slide-number">09</span>
+
+  <h2 class="reveal" style="text-align:center;">9 questions, zero lines of code read</h2>
+  <p class="subtitle reveal reveal-d1" style="text-align:center; margin:0 auto 1.5rem; max-width:55ch;">
+    The LLM formulated CPGQL queries using only "this is an Express app with Sequelize."
+  </p>
+
+  <div class="card-grid card-grid-3 reveal-scale reveal-d2" style="max-width:1100px; margin:0 auto;">
+    <!-- S1 -->
+    <div class="flip-card" onclick="this.classList.toggle('flipped')">
+      <div class="flip-card-inner">
+        <div class="flip-card-front">
+          <span class="label">S1 Routes</span>
+          <h3 style="font-size:1.1rem; margin-top:0.3rem;">109 handlers</h3>
+          <p>All in server.ts, 3 route groups</p>
+          <span class="flip-hint">click to flip</span>
+        </div>
+        <div class="flip-card-back">
+          <span style="color:var(--accent);">// CPGQL</span><br>
+          cpg.call.name("get|post|put|delete")<br>
+          &nbsp;&nbsp;.where(_.file.name("server.ts"))<br>
+          &nbsp;&nbsp;.l.size<br>
+          <span style="color:var(--success);">// → 109</span>
+        </div>
+      </div>
+    </div>
+    <!-- S2 -->
+    <div class="flip-card" onclick="this.classList.toggle('flipped')">
+      <div class="flip-card-inner">
+        <div class="flip-card-front">
+          <span class="label">S2 Middleware</span>
+          <h3 style="font-size:1.1rem; margin-top:0.3rem;">9 reusable</h3>
+          <p>security.* pattern identified</p>
+          <span class="flip-hint">click to flip</span>
+        </div>
+        <div class="flip-card-back">
+          <span style="color:var(--accent);">// CPGQL</span><br>
+          cpg.call.name("get|post|...")<br>
+          &nbsp;&nbsp;.flatMap(c =&gt; c.argument<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;.map(a =&gt; a.code))<br>
+          &nbsp;&nbsp;.groupBy(identity).l
+        </div>
+      </div>
+    </div>
+    <!-- S3 -->
+    <div class="flip-card" onclick="this.classList.toggle('flipped')">
+      <div class="flip-card-inner">
+        <div class="flip-card-front">
+          <span class="label">S3 Auth</span>
+          <h3 style="font-size:1.1rem; margin-top:0.3rem;">Custom, not passport</h3>
+          <p>isAuthorized, denyAll, appendUserId</p>
+          <span class="flip-hint">click to flip</span>
+        </div>
+        <div class="flip-card-back">
+          <span style="color:var(--accent);">// CPGQL + GitNexus</span><br>
+          cpg.method<br>
+          &nbsp;&nbsp;.where(_.file.name(<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;"insecurity.ts"))<br>
+          &nbsp;&nbsp;.name.l<br>
+          <span style="color:var(--success);">// → 19 functions</span>
+        </div>
+      </div>
+    </div>
+    <!-- S4 -->
+    <div class="flip-card" onclick="this.classList.toggle('flipped')">
+      <div class="flip-card-inner">
+        <div class="flip-card-front">
+          <span class="label">S4 DB Ops</span>
+          <h3 style="font-size:1.1rem; margin-top:0.3rem;">33 files</h3>
+          <p>Sequelize + MongoDB, writes in 20 route files</p>
+          <span class="flip-hint">click to flip</span>
+        </div>
+        <div class="flip-card-back">
+          <span style="color:var(--accent);">// CPGQL</span><br>
+          cpg.call.name("findOne|findAll<br>
+          &nbsp;&nbsp;|create|update|destroy")<br>
+          &nbsp;&nbsp;.groupBy(_.file.name).l<br>
+          <span style="color:var(--success);">// → 33 server-side files</span>
+        </div>
+      </div>
+    </div>
+    <!-- S5 -->
+    <div class="flip-card" onclick="this.classList.toggle('flipped')">
+      <div class="flip-card-inner">
+        <div class="flip-card-front">
+          <span class="label">S5 Validation</span>
+          <h3 style="font-size:1.1rem; margin-top:0.3rem; color:var(--danger);">Zero</h3>
+          <p>No library, no ad-hoc validation</p>
+          <span class="flip-hint">click to flip</span>
+        </div>
+        <div class="flip-card-back">
+          <span style="color:var(--accent);">// CPGQL</span><br>
+          cpg.call.name("check|body<br>
+          &nbsp;&nbsp;|query|param<br>
+          &nbsp;&nbsp;|validationResult")<br>
+          &nbsp;&nbsp;.l.size<br>
+          <span style="color:var(--danger);">// → 0</span>
+        </div>
+      </div>
+    </div>
+    <!-- S6 -->
+    <div class="flip-card" onclick="this.classList.toggle('flipped')">
+      <div class="flip-card-inner">
+        <div class="flip-card-front">
+          <span class="label">S6 Errors</span>
+          <h3 style="font-size:1.1rem; margin-top:0.3rem;">1 global handler</h3>
+          <p>Leaks raw errors + Express version</p>
+          <span class="flip-hint">click to flip</span>
+        </div>
+        <div class="flip-card-back">
+          <span style="color:var(--accent);">// CPGQL</span><br>
+          cpg.call.name("status")<br>
+          &nbsp;&nbsp;.where(_.code(<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;".*status\\((4|5)\\d\\d\\).*"))<br>
+          &nbsp;&nbsp;.l<br>
+          <span style="color:var(--success);">// → 30+ files</span>
+        </div>
+      </div>
+    </div>
+    <!-- S7 -->
+    <div class="flip-card" onclick="this.classList.toggle('flipped')">
+      <div class="flip-card-inner">
+        <div class="flip-card-front">
+          <span class="label">S7 Uploads</span>
+          <h3 style="font-size:1.1rem; margin-top:0.3rem;">4 routes</h3>
+          <p>Validators exist but always pass</p>
+          <span class="flip-hint">click to flip</span>
+        </div>
+        <div class="flip-card-back">
+          <span style="color:var(--accent);">// CPGQL</span><br>
+          cpg.call.name("single|array")<br>
+          &nbsp;&nbsp;.where(_.code(<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;".*(upload|multer).*"))<br>
+          &nbsp;&nbsp;.l<br>
+          <span style="color:var(--success);">// → 4 multer configs</span>
+        </div>
+      </div>
+    </div>
+    <!-- S8 -->
+    <div class="flip-card" onclick="this.classList.toggle('flipped')">
+      <div class="flip-card-inner">
+        <div class="flip-card-front">
+          <span class="label">S8 Rate Limits</span>
+          <h3 style="font-size:1.1rem; margin-top:0.3rem;">4 of 109 <span style="color:var(--danger);">(3.7%)</span></h3>
+          <p>Only reset-password + 2FA</p>
+          <span class="flip-hint">click to flip</span>
+        </div>
+        <div class="flip-card-back">
+          <span style="color:var(--accent);">// CPGQL</span><br>
+          cpg.call.name("rateLimit")<br>
+          &nbsp;&nbsp;.map(c =&gt; (<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;c.code, c.lineNumber))<br>
+          &nbsp;&nbsp;.l<br>
+          <span style="color:var(--success);">// → 4 endpoints</span>
+        </div>
+      </div>
+    </div>
+    <!-- S9 -->
+    <div class="flip-card" onclick="this.classList.toggle('flipped')">
+      <div class="flip-card-inner">
+        <div class="flip-card-front">
+          <span class="label">S9 WebSocket</span>
+          <h3 style="font-size:1.1rem; margin-top:0.3rem;">1 handler, <span style="color:var(--danger);">no auth</span></h3>
+          <p>socket.io, no JWT on connection</p>
+          <span class="flip-hint">click to flip</span>
+        </div>
+        <div class="flip-card-back">
+          <span style="color:var(--accent);">// CPGQL</span><br>
+          cpg.call.name("on")<br>
+          &nbsp;&nbsp;.where(_.code(<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;".*(connection).*"))<br>
+          &nbsp;&nbsp;.l<br>
+          <span style="color:var(--success);">// → 1 handler</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════
+     SLIDE 10 — Pass 2 Findings (Expandable)
+     ════════════════════════════════════════════════════════ -->
+<section class="slide" data-title="Pass 2 Findings">
+  <span class="slide-number">10</span>
+  <div class="glow-orb" style="width:500px;height:500px;background:var(--danger);opacity:0.04;bottom:-200px;right:-100px;"></div>
+
+  <h2 class="reveal" style="text-align:center;">8 CWEs, 11 queries, 30 confirmed findings</h2>
+
+  <div class="reveal reveal-d1" style="max-width:950px; margin:1.5rem auto 0;">
+    <!-- Header -->
+    <div style="display:grid; grid-template-columns:80px 1fr 90px 24px; padding:0.5rem 1rem; gap:0.75rem; border-bottom:1px solid rgba(124,92,252,0.15);">
+      <span style="font-family:var(--font-mono); font-size:0.7rem; color:var(--text-muted); letter-spacing:0.1em;">CWE</span>
+      <span style="font-family:var(--font-mono); font-size:0.7rem; color:var(--text-muted); letter-spacing:0.1em;">FINDING</span>
+      <span style="font-family:var(--font-mono); font-size:0.7rem; color:var(--text-muted); letter-spacing:0.1em;">SEVERITY</span>
+      <span></span>
+    </div>
+
+    <!-- CWE-269 -->
+    <div class="expandable-row" onclick="this.classList.toggle('expanded')">
+      <div class="expandable-row-header">
+        <strong style="font-family:var(--font-mono); font-size:0.85rem;">269</strong>
+        <span>58 routes (53%) have no auth middleware</span>
+        <span class="badge badge-danger">Critical</span>
+        <span class="expand-icon">&#9654;</span>
+      </div>
+      <div class="expandable-row-detail">
+        <p style="color:var(--text-muted); font-size:0.85rem; line-height:1.6;">
+          Negative sub-traversal on app.verb() calls in server.ts, filtering out routes with security.* arguments.
+          Cross-referenced with path-scoped app.use() auth. Notable: <code>GET /rest/user/change-password</code>,
+          admin endpoints, all file uploads left unprotected.
+        </p>
+      </div>
+    </div>
+    <!-- CWE-311 -->
+    <div class="expandable-row" onclick="this.classList.toggle('expanded')">
+      <div class="expandable-row-header">
+        <strong style="font-family:var(--font-mono); font-size:0.85rem;">311</strong>
+        <span>MD5 passwords, hardcoded HMAC key, plaintext TOTP</span>
+        <span class="badge badge-danger">Critical</span>
+        <span class="expand-icon">&#9654;</span>
+      </div>
+      <div class="expandable-row-detail">
+        <p style="color:var(--text-muted); font-size:0.85rem; line-height:1.6;">
+          <code>hash()</code> uses <code>crypto.createHash('md5')</code> with no salt, no stretching.
+          <code>hmac()</code> key <code>'pa4qacea4VK9t9nGv7yZtwmj'</code> hardcoded in source.
+          Card numbers stored as plaintext integers. TOTP secrets unencrypted in DB.
+        </p>
+      </div>
+    </div>
+    <!-- CWE-434 -->
+    <div class="expandable-row" onclick="this.classList.toggle('expanded')">
+      <div class="expandable-row-header">
+        <strong style="font-family:var(--font-mono); font-size:0.85rem;">434</strong>
+        <span>4 upload routes, validators exist but always pass</span>
+        <span class="badge badge-warning">High</span>
+        <span class="expand-icon">&#9654;</span>
+      </div>
+      <div class="expandable-row-detail">
+        <p style="color:var(--text-muted); font-size:0.85rem; line-height:1.6;">
+          <code>checkFileType</code> checks extension for challenge solving but always calls <code>next()</code>.
+          <code>checkUploadSize</code> always calls <code>next()</code>. No magic byte validation,
+          no content-type check, no multer fileFilter configured.
+        </p>
+      </div>
+    </div>
+    <!-- CWE-501 -->
+    <div class="expandable-row" onclick="this.classList.toggle('expanded')">
+      <div class="expandable-row-header">
+        <strong style="font-family:var(--font-mono); font-size:0.85rem;">501</strong>
+        <span>22 DB ops use untrusted input directly</span>
+        <span class="badge badge-danger">Critical</span>
+        <span class="expand-icon">&#9654;</span>
+      </div>
+      <div class="expandable-row-detail">
+        <p style="color:var(--text-muted); font-size:0.85rem; line-height:1.6;">
+          Mass assignment in <code>POST /api/Users</code>: full req.body to Sequelize with no field allowlist.
+          Chatbot query text overwrites username. <code>req.body.UserId</code> used instead of middleware-injected value in 14+ files.
+        </p>
+      </div>
+    </div>
+    <!-- CWE-602 -->
+    <div class="expandable-row" onclick="this.classList.toggle('expanded')">
+      <div class="expandable-row-header">
+        <strong style="font-family:var(--font-mono); font-size:0.85rem;">602</strong>
+        <span>5 validation checks across 109 handlers (4.6%)</span>
+        <span class="badge badge-warning">High</span>
+        <span class="expand-icon">&#9654;</span>
+      </div>
+      <div class="expandable-row-detail">
+        <p style="color:var(--text-muted); font-size:0.85rem; line-height:1.6;">
+          All 5 are password-emptiness checks. Zero type coercion, zero regex, zero schema validation.
+          Model-layer sanitization exists but is output encoding, not input validation.
+        </p>
+      </div>
+    </div>
+    <!-- CWE-653 -->
+    <div class="expandable-row" onclick="this.classList.toggle('expanded')">
+      <div class="expandable-row-header">
+        <strong style="font-family:var(--font-mono); font-size:0.85rem;">653</strong>
+        <span>Unauthenticated users reach hash, JWT signing</span>
+        <span class="badge badge-warning">High</span>
+        <span class="expand-icon">&#9654;</span>
+      </div>
+      <div class="expandable-row-detail">
+        <p style="color:var(--text-muted); font-size:0.85rem; line-height:1.6;">
+          <code>changePassword</code> calls <code>hash()</code>, <code>resetPassword</code> calls <code>hmac()</code>,
+          <code>chatbot</code> calls <code>authorize()</code> and <code>verify()</code>.
+          Prometheus metrics endpoint exposed without auth.
+        </p>
+      </div>
+    </div>
+    <!-- CWE-799 -->
+    <div class="expandable-row" onclick="this.classList.toggle('expanded')">
+      <div class="expandable-row-header">
+        <strong style="font-family:var(--font-mono); font-size:0.85rem;">799</strong>
+        <span>Login has no rate limiting, reset uses spoofable header</span>
+        <span class="badge badge-info">Medium</span>
+        <span class="expand-icon">&#9654;</span>
+      </div>
+      <div class="expandable-row-detail">
+        <p style="color:var(--text-muted); font-size:0.85rem; line-height:1.6;">
+          4/109 routes rate-limited (reset-password + 2FA only). All use 5min/100req.
+          Reset-password keyGenerator uses <code>X-Forwarded-For</code>, which is trivially bypassable.
+        </p>
+      </div>
+    </div>
+    <!-- CWE-841 -->
+    <div class="expandable-row" onclick="this.classList.toggle('expanded')">
+      <div class="expandable-row-header">
+        <strong style="font-family:var(--font-mono); font-size:0.85rem;">841</strong>
+        <span>Purchase workflow has no state machine</span>
+        <span class="badge badge-warning">High</span>
+        <span class="expand-icon">&#9654;</span>
+      </div>
+      <div class="expandable-row-detail">
+        <p style="color:var(--text-muted); font-size:0.85rem; line-height:1.6;">
+          Checkout verifies basket and delivery but NOT address or payment card. No session-level step tracking.
+          Angular frontend stores state in sessionStorage. Coupon applied to any basket without ownership check.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════
+     SLIDE 11 — Validation
+     ════════════════════════════════════════════════════════ -->
+<section class="slide" data-title="Validation">
+  <span class="slide-number">11</span>
+  <div class="grid-bg"></div>
+
+  <h2 class="reveal" style="text-align:center;">30 findings, 30 confirmed, zero false positives</h2>
+  <p class="subtitle reveal reveal-d1" style="text-align:center; margin:0 auto 1.5rem; max-width:55ch;">
+    Every finding maps to at least one known exploitable challenge in <a href="https://github.com/BlockSecCA/vulnerable-app" style="color:var(--accent-secondary); text-decoration:none;">vulnerable-app</a>.
+  </p>
+
+  <div class="reveal reveal-d2" style="max-width:950px; margin:0 auto;">
+    <!-- Header -->
+    <div class="validation-header" style="display:grid; grid-template-columns:80px 1fr 60px 120px 24px; padding:0.5rem 1rem; gap:0.75rem; border-bottom:1px solid rgba(124,92,252,0.15);">
+      <span style="font-family:var(--font-mono); font-size:0.7rem; color:var(--text-muted); letter-spacing:0.1em;">CWE</span>
+      <span style="font-family:var(--font-mono); font-size:0.7rem; color:var(--text-muted); letter-spacing:0.1em;">FINDING</span>
+      <span style="font-family:var(--font-mono); font-size:0.7rem; color:var(--text-muted); letter-spacing:0.1em; text-align:center;">MATCH</span>
+      <span style="font-family:var(--font-mono); font-size:0.7rem; color:var(--text-muted); letter-spacing:0.1em;">EXAMPLE</span>
+      <span></span>
+    </div>
+
+    <!-- CWE-269 -->
+    <div class="expandable-row" onclick="this.classList.toggle('expanded')">
+      <div class="expandable-row-header validation-header" style="grid-template-columns:80px 1fr 60px 120px 24px;">
+        <strong style="font-family:var(--font-mono); font-size:0.85rem;">269</strong>
+        <span style="font-size:0.85rem;">58 unprotected routes</span>
+        <span class="check-mark" style="text-align:center;">4 &#10003;</span>
+        <span style="font-size:0.8rem; color:var(--text-muted);">Admin Section</span>
+        <span class="expand-icon">&#9654;</span>
+      </div>
+      <div class="expandable-row-detail">
+        <p style="color:var(--text-muted); font-size:0.85rem;">
+          <strong>Admin Section</strong>: admin panel accessible without auth.
+          <strong>Change User1's Password</strong>: password change via GET, no auth.
+          <strong>View Basket</strong>: another user's basket viewable.
+          <strong>Five-Star Feedback</strong>: delete feedback without auth.
+        </p>
+      </div>
+    </div>
+    <!-- CWE-311 -->
+    <div class="expandable-row" onclick="this.classList.toggle('expanded')">
+      <div class="expandable-row-header validation-header" style="grid-template-columns:80px 1fr 60px 120px 24px;">
+        <strong style="font-family:var(--font-mono); font-size:0.85rem;">311</strong>
+        <span style="font-size:0.85rem;">MD5, hardcoded HMAC</span>
+        <span class="check-mark" style="text-align:center;">3 &#10003;</span>
+        <span style="font-size:0.8rem; color:var(--text-muted);">Weird Crypto</span>
+        <span class="expand-icon">&#9654;</span>
+      </div>
+      <div class="expandable-row-detail">
+        <p style="color:var(--text-muted); font-size:0.85rem;">
+          <strong>Password Strength</strong>: admin password crackable (MD5 reversible).
+          <strong>Weird Crypto</strong>: "algorithm it should not use."
+          <strong>Two Factor Auth</strong>: TOTP secret stored unsafely.
+        </p>
+      </div>
+    </div>
+    <!-- CWE-434 -->
+    <div class="expandable-row" onclick="this.classList.toggle('expanded')">
+      <div class="expandable-row-header validation-header" style="grid-template-columns:80px 1fr 60px 120px 24px;">
+        <strong style="font-family:var(--font-mono); font-size:0.85rem;">434</strong>
+        <span style="font-size:0.85rem;">Fake file validators</span>
+        <span class="check-mark" style="text-align:center;">3 &#10003;</span>
+        <span style="font-size:0.8rem; color:var(--text-muted);">Upload Type</span>
+        <span class="expand-icon">&#9654;</span>
+      </div>
+      <div class="expandable-row-detail">
+        <p style="color:var(--text-muted); font-size:0.85rem;">
+          <strong>Upload Size</strong>: upload &gt;100kB (checkUploadSize always passes).
+          <strong>Upload Type</strong>: upload non-PDF/ZIP (checkFileType always passes).
+          <strong>Arbitrary File Write</strong>: overwrite legal information file.
+        </p>
+      </div>
+    </div>
+    <!-- CWE-501 -->
+    <div class="expandable-row" onclick="this.classList.toggle('expanded')">
+      <div class="expandable-row-header validation-header" style="grid-template-columns:80px 1fr 60px 120px 24px;">
+        <strong style="font-family:var(--font-mono); font-size:0.85rem;">501</strong>
+        <span style="font-size:0.85rem;">22 untrusted DB ops</span>
+        <span class="check-mark" style="text-align:center;">5 &#10003;</span>
+        <span style="font-size:0.8rem; color:var(--text-muted);">Admin Registration</span>
+        <span class="expand-icon">&#9654;</span>
+      </div>
+      <div class="expandable-row-detail">
+        <p style="color:var(--text-muted); font-size:0.85rem;">
+          <strong>Admin Registration</strong>: mass assignment sets role:admin.
+          <strong>Forged Feedback</strong>: post as another user.
+          <strong>Forged Review</strong>: edit any review.
+          <strong>Manipulate Basket</strong>: put product in another's basket.
+          <strong>NoSQL Manipulation</strong>: update multiple reviews.
+        </p>
+      </div>
+    </div>
+    <!-- CWE-602 -->
+    <div class="expandable-row" onclick="this.classList.toggle('expanded')">
+      <div class="expandable-row-header validation-header" style="grid-template-columns:80px 1fr 60px 120px 24px;">
+        <strong style="font-family:var(--font-mono); font-size:0.85rem;">602</strong>
+        <span style="font-size:0.85rem;">4.6% validation</span>
+        <span class="check-mark" style="text-align:center;">4 &#10003;</span>
+        <span style="font-size:0.8rem; color:var(--text-muted);">Zero Stars</span>
+        <span class="expand-icon">&#9654;</span>
+      </div>
+      <div class="expandable-row-detail">
+        <p style="color:var(--text-muted); font-size:0.85rem;">
+          <strong>Zero Stars</strong>: UI prevents 0 stars, server accepts it.
+          <strong>Empty User Registration</strong>: register with empty fields.
+          <strong>Repetitive Registration</strong>: DRY violation.
+          <strong>Payback Time</strong>: negative quantities not validated.
+        </p>
+      </div>
+    </div>
+    <!-- CWE-653 -->
+    <div class="expandable-row" onclick="this.classList.toggle('expanded')">
+      <div class="expandable-row-header validation-header" style="grid-template-columns:80px 1fr 60px 120px 24px;">
+        <strong style="font-family:var(--font-mono); font-size:0.85rem;">653</strong>
+        <span style="font-size:0.85rem;">Unprotected security functions</span>
+        <span class="check-mark" style="text-align:center;">2 &#10003;</span>
+        <span style="font-size:0.8rem; color:var(--text-muted);">Exposed Metrics</span>
+        <span class="expand-icon">&#9654;</span>
+      </div>
+      <div class="expandable-row-detail">
+        <p style="color:var(--text-muted); font-size:0.85rem;">
+          <strong>Exposed Metrics</strong>: Prometheus endpoint without auth.
+          <strong>Change User1's Password</strong>: password change reaches hash function without auth.
+        </p>
+      </div>
+    </div>
+    <!-- CWE-799 -->
+    <div class="expandable-row" onclick="this.classList.toggle('expanded')">
+      <div class="expandable-row-header validation-header" style="grid-template-columns:80px 1fr 60px 120px 24px;">
+        <strong style="font-family:var(--font-mono); font-size:0.85rem;">799</strong>
+        <span style="font-size:0.85rem;">Login not rate-limited</span>
+        <span class="check-mark" style="text-align:center;">2 &#10003;</span>
+        <span style="font-size:0.8rem; color:var(--text-muted);">CAPTCHA Bypass</span>
+        <span class="expand-icon">&#9654;</span>
+      </div>
+      <div class="expandable-row-detail">
+        <p style="color:var(--text-muted); font-size:0.85rem;">
+          <strong>CAPTCHA Bypass</strong>: submit 10+ feedbacks in 20 seconds.
+          <strong>Reset User3's Password</strong>: brute force despite rate limiting (bypassable).
+        </p>
+      </div>
+    </div>
+    <!-- CWE-841 -->
+    <div class="expandable-row" onclick="this.classList.toggle('expanded')">
+      <div class="expandable-row-header validation-header" style="grid-template-columns:80px 1fr 60px 120px 24px;">
+        <strong style="font-family:var(--font-mono); font-size:0.85rem;">841</strong>
+        <span style="font-size:0.85rem;">No workflow state machine</span>
+        <span class="check-mark" style="text-align:center;">3 &#10003;</span>
+        <span style="font-size:0.8rem; color:var(--text-muted);">Deluxe Fraud</span>
+        <span class="expand-icon">&#9654;</span>
+      </div>
+      <div class="expandable-row-detail">
+        <p style="color:var(--text-muted); font-size:0.85rem;">
+          <strong>Deluxe Fraud</strong>: obtain membership without paying.
+          <strong>Payback Time</strong>: order makes you rich (negative quantities).
+          <strong>Expired Coupon</strong>: redeem expired coupon.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════
+     SLIDE 12 — The Keyhole Revisited
+     ════════════════════════════════════════════════════════ -->
+<section class="slide" data-title="Keyhole Revisited">
+  <span class="slide-number">12</span>
+  <div class="glow-orb" style="width:600px;height:600px;background:var(--accent);opacity:0.05;top:50%;left:50%;transform:translate(-50%,-50%);"></div>
+
+  <h2 class="reveal" style="text-align:center;">From reading every file to querying for answers</h2>
+
+  <div class="slide-split reveal-scale reveal-d2" style="max-width:900px; margin:2rem auto 0; padding:0;">
+    <!-- Without CPG -->
+    <div class="card" style="text-align:center; border-color:rgba(244,63,94,0.2);">
+      <div style="font-size:0.75rem; color:var(--danger); font-weight:600; margin-bottom:1rem;">WITHOUT CPG</div>
+      <div class="svg-diagram" style="max-width:200px;">
+        <svg viewBox="0 0 150 150" xmlns="http://www.w3.org/2000/svg">
+          <!-- Many lit up files -->
+          <g fill="rgba(244,63,94,0.25)" stroke="#f43f5e" stroke-width="0.5">
+            <rect x="5" y="5" width="14" height="14" rx="2"/><rect x="22" y="5" width="14" height="14" rx="2"/>
+            <rect x="39" y="5" width="14" height="14" rx="2"/><rect x="56" y="5" width="14" height="14" rx="2"/>
+            <rect x="73" y="5" width="14" height="14" rx="2"/><rect x="90" y="5" width="14" height="14" rx="2"/>
+            <rect x="107" y="5" width="14" height="14" rx="2"/><rect x="124" y="5" width="14" height="14" rx="2"/>
+            <rect x="5" y="22" width="14" height="14" rx="2"/><rect x="22" y="22" width="14" height="14" rx="2"/>
+            <rect x="39" y="22" width="14" height="14" rx="2"/><rect x="56" y="22" width="14" height="14" rx="2"/>
+            <rect x="73" y="22" width="14" height="14" rx="2"/><rect x="90" y="22" width="14" height="14" rx="2"/>
+            <rect x="107" y="22" width="14" height="14" rx="2"/><rect x="124" y="22" width="14" height="14" rx="2"/>
+            <rect x="5" y="39" width="14" height="14" rx="2"/><rect x="22" y="39" width="14" height="14" rx="2"/>
+            <rect x="39" y="39" width="14" height="14" rx="2"/><rect x="56" y="39" width="14" height="14" rx="2"/>
+            <rect x="73" y="39" width="14" height="14" rx="2"/><rect x="90" y="39" width="14" height="14" rx="2"/>
+            <rect x="107" y="39" width="14" height="14" rx="2"/><rect x="124" y="39" width="14" height="14" rx="2"/>
+            <rect x="5" y="56" width="14" height="14" rx="2"/><rect x="22" y="56" width="14" height="14" rx="2"/>
+            <rect x="39" y="56" width="14" height="14" rx="2"/><rect x="56" y="56" width="14" height="14" rx="2"/>
+            <rect x="73" y="56" width="14" height="14" rx="2"/><rect x="90" y="56" width="14" height="14" rx="2"/>
+            <rect x="107" y="56" width="14" height="14" rx="2"/><rect x="124" y="56" width="14" height="14" rx="2"/>
+            <rect x="5" y="73" width="14" height="14" rx="2"/><rect x="22" y="73" width="14" height="14" rx="2"/>
+            <rect x="39" y="73" width="14" height="14" rx="2"/><rect x="56" y="73" width="14" height="14" rx="2"/>
+            <rect x="73" y="73" width="14" height="14" rx="2"/><rect x="90" y="73" width="14" height="14" rx="2"/>
+            <rect x="107" y="73" width="14" height="14" rx="2"/><rect x="124" y="73" width="14" height="14" rx="2"/>
+            <rect x="5" y="90" width="14" height="14" rx="2"/><rect x="22" y="90" width="14" height="14" rx="2"/>
+            <rect x="39" y="90" width="14" height="14" rx="2"/><rect x="56" y="90" width="14" height="14" rx="2"/>
+            <rect x="73" y="90" width="14" height="14" rx="2"/><rect x="90" y="90" width="14" height="14" rx="2"/>
+          </g>
+          <text x="75" y="125" text-anchor="middle" fill="#f43f5e" font-family="var(--font-mono)" font-size="14" font-weight="700">974 files</text>
+          <text x="75" y="142" text-anchor="middle" fill="#94a3b8" font-family="Inter,sans-serif" font-size="9">all must be read</text>
+        </svg>
+      </div>
+    </div>
+    <!-- With CPG -->
+    <div class="card" style="text-align:center; border-color:rgba(52,211,153,0.2);">
+      <div style="font-size:0.75rem; color:var(--success); font-weight:600; margin-bottom:1rem;">WITH CPG</div>
+      <div class="svg-diagram" style="max-width:200px;">
+        <svg viewBox="0 0 150 150" xmlns="http://www.w3.org/2000/svg">
+          <!-- Many grey files -->
+          <g fill="rgba(100,116,139,0.08)" stroke="#64748b" stroke-width="0.3">
+            <rect x="5" y="5" width="14" height="14" rx="2"/><rect x="22" y="5" width="14" height="14" rx="2"/>
+            <rect x="39" y="5" width="14" height="14" rx="2"/><rect x="56" y="5" width="14" height="14" rx="2"/>
+            <rect x="73" y="5" width="14" height="14" rx="2"/><rect x="90" y="5" width="14" height="14" rx="2"/>
+            <rect x="107" y="5" width="14" height="14" rx="2"/><rect x="124" y="5" width="14" height="14" rx="2"/>
+            <rect x="5" y="22" width="14" height="14" rx="2"/><rect x="22" y="22" width="14" height="14" rx="2"/>
+            <rect x="39" y="22" width="14" height="14" rx="2"/><rect x="56" y="22" width="14" height="14" rx="2"/>
+            <rect x="73" y="22" width="14" height="14" rx="2"/><rect x="90" y="22" width="14" height="14" rx="2"/>
+            <rect x="107" y="22" width="14" height="14" rx="2"/><rect x="124" y="22" width="14" height="14" rx="2"/>
+            <rect x="5" y="39" width="14" height="14" rx="2"/><rect x="22" y="39" width="14" height="14" rx="2"/>
+            <rect x="39" y="39" width="14" height="14" rx="2"/><rect x="56" y="39" width="14" height="14" rx="2"/>
+            <rect x="73" y="39" width="14" height="14" rx="2"/><rect x="90" y="39" width="14" height="14" rx="2"/>
+            <rect x="107" y="39" width="14" height="14" rx="2"/><rect x="124" y="39" width="14" height="14" rx="2"/>
+            <rect x="5" y="56" width="14" height="14" rx="2"/><rect x="22" y="56" width="14" height="14" rx="2"/>
+            <rect x="39" y="56" width="14" height="14" rx="2"/><rect x="56" y="56" width="14" height="14" rx="2"/>
+            <rect x="73" y="56" width="14" height="14" rx="2"/><rect x="90" y="56" width="14" height="14" rx="2"/>
+            <rect x="107" y="56" width="14" height="14" rx="2"/><rect x="124" y="56" width="14" height="14" rx="2"/>
+            <rect x="5" y="73" width="14" height="14" rx="2"/><rect x="22" y="73" width="14" height="14" rx="2"/>
+            <rect x="39" y="73" width="14" height="14" rx="2"/><rect x="56" y="73" width="14" height="14" rx="2"/>
+            <rect x="73" y="73" width="14" height="14" rx="2"/><rect x="90" y="73" width="14" height="14" rx="2"/>
+            <rect x="107" y="73" width="14" height="14" rx="2"/><rect x="124" y="73" width="14" height="14" rx="2"/>
+            <rect x="5" y="90" width="14" height="14" rx="2"/><rect x="22" y="90" width="14" height="14" rx="2"/>
+            <rect x="39" y="90" width="14" height="14" rx="2"/><rect x="56" y="90" width="14" height="14" rx="2"/>
+            <rect x="73" y="90" width="14" height="14" rx="2"/><rect x="90" y="90" width="14" height="14" rx="2"/>
+          </g>
+          <!-- 5 highlighted -->
+          <rect x="22" y="22" width="14" height="14" rx="2" fill="rgba(52,211,153,0.3)" stroke="#34d399" stroke-width="1.5"/>
+          <rect x="73" y="39" width="14" height="14" rx="2" fill="rgba(52,211,153,0.3)" stroke="#34d399" stroke-width="1.5"/>
+          <rect x="39" y="56" width="14" height="14" rx="2" fill="rgba(52,211,153,0.3)" stroke="#34d399" stroke-width="1.5"/>
+          <rect x="107" y="73" width="14" height="14" rx="2" fill="rgba(52,211,153,0.3)" stroke="#34d399" stroke-width="1.5"/>
+          <rect x="56" y="90" width="14" height="14" rx="2" fill="rgba(52,211,153,0.3)" stroke="#34d399" stroke-width="1.5"/>
+          <text x="75" y="125" text-anchor="middle" fill="#34d399" font-family="var(--font-mono)" font-size="14" font-weight="700">5 functions</text>
+          <text x="75" y="142" text-anchor="middle" fill="#94a3b8" font-family="Inter,sans-serif" font-size="9">targeted verification</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- Center stat -->
+  <div class="stat reveal reveal-d3" style="margin-top:2rem;">
+    <div class="stat-value text-accent">5 / 974</div>
+    <div class="stat-label">functions read vs files in codebase (0.5% of the code)</div>
+  </div>
+
+  <p class="reveal reveal-d4" style="color:var(--text-muted); font-size:0.88rem; text-align:center; max-width:55ch; margin:1.5rem auto 0;">
+    The CPG didn't eliminate code reading; it reduced it to targeted verification.
+    5 of 11 Pass 2 queries needed <code style="color:var(--accent)">get_source</code>, reading 10&ndash;20 lines each.
+  </p>
+</section>
+
+<!-- ════════════════════════════════════════════════════════
+     SLIDE 13 — Constraints
+     ════════════════════════════════════════════════════════ -->
+<section class="slide" data-title="Constraints">
+  <span class="slide-number">13</span>
+  <div class="grid-bg"></div>
+
+  <h2 class="reveal">What this doesn't prove (yet)</h2>
+
+  <ol class="constraint-list reveal reveal-d1" style="margin-top:1.5rem;">
+    <li><strong>Single target codebase.</strong> All results come from one application. Not validated across multiple projects.</li>
+    <li><strong>Intentionally vulnerable target.</strong> The application ships with documented vulnerabilities. Real codebases are messier.</li>
+    <li><strong>Single framework.</strong> Express/Sequelize only. Django, Spring, Rails, FastAPI, all remain untested.</li>
+    <li><strong>No SAST baseline.</strong> Didn't run Semgrep alongside for direct comparison of what each approach finds.</li>
+    <li><strong>CPGQL queries not independently validated.</strong> No expert review for completeness; alternative query formulations may find more.</li>
+    <li><strong>Human-in-the-loop.</strong> A human directed the session. This describes a workflow, not an automated pipeline.</li>
+    <li><strong>OWASP A06 scope only.</strong> Injection (A03), XSS (A07), misconfiguration (A05) were not tested.</li>
+    <li><strong>Static analysis only.</strong> No runtime behavior, no dynamic taint, no exploitation. Structural findings only.</li>
+  </ol>
+</section>
+
+<!-- ════════════════════════════════════════════════════════
+     SLIDE 14 — Conclusion
+     ════════════════════════════════════════════════════════ -->
+<section class="slide" data-title="Conclusion">
+  <span class="slide-number">14</span>
+  <div class="glow-orb" style="width:600px;height:600px;background:var(--accent);opacity:0.06;top:50%;left:50%;transform:translate(-50%,-50%);"></div>
+
+  <h2 class="reveal" style="text-align:center; font-size:1.6rem;">Conclusion: Design analysis needs a structural bridge</h2>
+
+  <div style="display:flex; flex-direction:column; gap:0.9rem; max-width:800px; margin:1.5rem auto 0;">
+    <div class="takeaway reveal reveal-d1">
+      <span class="takeaway-num">1</span>
+      <h3 style="font-size:1rem;">Bug finding is solved. Design analysis is not.</h3>
+      <p style="color:var(--text-muted); font-size:0.82rem; margin-top:0.3rem;">
+        SAST has 3,000+ rules for injection and XSS. Zero rules for "does this workflow enforce step ordering?"
+        or "what percentage of routes lack auth?" Design flaws are architectural.
+      </p>
+    </div>
+    <div class="takeaway reveal reveal-d2">
+      <span class="takeaway-num">2</span>
+      <h3 style="font-size:1rem;">LLMs can't read their way to design flaws.</h3>
+      <p style="color:var(--text-muted); font-size:0.82rem; margin-top:0.3rem;">
+        The keyhole problem is structural, not a context window limitation. Even with infinite context,
+        file-by-file reading loses the cross-file relationships that define design.
+      </p>
+    </div>
+    <div class="takeaway reveal reveal-d3">
+      <span class="takeaway-num">3</span>
+      <h3 style="font-size:1rem;">The CPG is the right abstraction layer.</h3>
+      <p style="color:var(--text-muted); font-size:0.82rem; margin-top:0.3rem;">
+        Not source code (too granular). Not pattern matching (no semantics, no absence detection).
+        A structural graph the LLM can query, reason over, and verify against. Two passes: learn the architecture, then interrogate the design.
+      </p>
+    </div>
+  </div>
+
+  <p class="reveal reveal-d4" style="color:var(--text-dim); font-size:0.78rem; text-align:center; max-width:65ch; margin:1.5rem auto 0;">
+    Validated on <a href="https://github.com/BlockSecCA/vulnerable-app" style="color:var(--accent-secondary); text-decoration:none;">vulnerable-app</a> (443K CPG nodes, 107 known challenges). 30 findings confirmed across 8 OWASP A06 categories.
+    Zero false positives. All tools open source.
+  </p>
+</section>
+
+<!-- ════════════════════════════════════════════════════════
+     SLIDE 15 — Appendix: Tools & References
+     ════════════════════════════════════════════════════════ -->
+<section class="slide" data-title="References">
+  <span class="slide-number">15</span>
+  <div class="grid-bg"></div>
+
+  <h2 class="reveal">Tools and references</h2>
+
+  <div class="reveal reveal-d1" style="max-width:950px; margin-top:1.5rem;">
+    <h3 style="font-size:1rem; margin-bottom:0.5rem;">Tools used</h3>
+    <table class="styled-table" style="font-size:0.85rem;">
+      <thead><tr><th>Tool</th><th>Purpose</th><th>URL</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Joern</strong></td><td>Open-source CPG engine, CPGQL query language</td><td><a href="https://joern.io" style="color:var(--accent-secondary);">joern.io</a></td></tr>
+        <tr><td><strong>GitNexus</strong></td><td>Code knowledge graph, community detection, blast radius</td><td><a href="https://github.com/BlockSecCA/GitNexus" style="color:var(--accent-secondary);">github.com/BlockSecCA/GitNexus</a></td></tr>
+        <tr><td><strong>Claude</strong></td><td>LLM for query generation, reasoning, interpretation</td><td><a href="https://anthropic.com" style="color:var(--accent-secondary);">anthropic.com</a></td></tr>
+        <tr><td><strong>joern-mcp</strong></td><td>MCP server wrapping Joern's HTTP API</td><td><a href="https://github.com/BlockSecCA/joern-mcp" style="color:var(--accent-secondary);">github.com/BlockSecCA/joern-mcp</a></td></tr>
+        <tr><td><strong>vulnerable-app</strong></td><td>Target application: intentionally vulnerable Express/Sequelize app (107 challenges)</td><td><a href="https://github.com/BlockSecCA/vulnerable-app" style="color:var(--accent-secondary);">github.com/BlockSecCA/vulnerable-app</a></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="reveal reveal-d2" style="max-width:950px; margin-top:1.5rem;">
+    <h3 style="font-size:1rem; margin-bottom:0.5rem;">Standards</h3>
+    <table class="styled-table" style="font-size:0.85rem;">
+      <thead><tr><th>Reference</th><th>URL</th></tr></thead>
+      <tbody>
+        <tr><td>OWASP Top 10: A06:2021 Insecure Design</td><td><a href="https://owasp.org/Top10/A06_2021-Insecure_Design/" style="color:var(--accent-secondary);">owasp.org/Top10/A06</a></td></tr>
+        <tr><td>CWE (Common Weakness Enumeration)</td><td><a href="https://cwe.mitre.org" style="color:var(--accent-secondary);">cwe.mitre.org</a></td></tr>
+        <tr><td>CPGQL Documentation</td><td><a href="https://docs.joern.io/cpgql" style="color:var(--accent-secondary);">docs.joern.io/cpgql</a></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="reveal reveal-d3" style="max-width:950px; margin-top:1.5rem;">
+    <h3 style="font-size:1rem; margin-bottom:0.5rem;">Papers</h3>
+    <table class="styled-table" style="font-size:0.85rem;">
+      <thead><tr><th>Paper</th><th>Authors</th><th>URL</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>LLMxCPG</strong></td>
+          <td>Lekssays, Mouhcine, Tran, Yu, Khalil (2025)</td>
+          <td><a href="https://arxiv.org/abs/2507.16585" style="color:var(--accent-secondary);">arxiv.org/abs/2507.16585</a></td>
+        </tr>
+        <tr>
+          <td><strong>Code Property Graphs</strong></td>
+          <td>Yamaguchi, Golde, Arp, Rieck (2014)</td>
+          <td><a href="https://ieeexplore.ieee.org/document/6956589" style="color:var(--accent-secondary);">ieeexplore.ieee.org/&hellip;</a></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ════════════════════════════════════════════════════════
+     JavaScript
+     ════════════════════════════════════════════════════════ -->
+<script>
+// ── CPG Diagram Toggle ──────────────────────────────────
+function toggleCPG(layer) {
+  const ast = document.getElementById('cpg-ast');
+  const cfg = document.getElementById('cpg-cfg');
+  const pdg = document.getElementById('cpg-pdg');
+  const btns = document.querySelectorAll('.toggle-btn');
+
+  btns.forEach(b => b.classList.remove('active'));
+  document.querySelector(`[data-layer="${layer}"]`).classList.add('active');
+
+  if (layer === 'all') {
+    ast.style.opacity = '1';
+    cfg.style.opacity = '1';
+    pdg.style.opacity = '1';
+  } else {
+    ast.style.opacity = layer === 'ast' ? '1' : '0.15';
+    cfg.style.opacity = layer === 'cfg' ? '1' : '0.15';
+    pdg.style.opacity = layer === 'pdg' ? '1' : '0.15';
+  }
+}
+
+// ── Main Navigation & Reveals ───────────────────────────
+(() => {
+  const slides = document.querySelectorAll('.slide');
+  const navContainer = document.getElementById('navDots');
+  const keyHint = document.querySelector('.key-hint');
+  let hintTimeout;
+
+  // Build nav dots
+  slides.forEach((slide, i) => {
+    const dot = document.createElement('button');
+    dot.className = 'nav-dot';
+    dot.title = slide.dataset.title || `Slide ${i + 1}`;
+    dot.addEventListener('click', () => {
+      slide.scrollIntoView({ behavior: 'smooth' });
+    });
+    navContainer.appendChild(dot);
+  });
+  const dots = navContainer.querySelectorAll('.nav-dot');
+
+  // Intersection observer for reveals + nav dots
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        const idx = [...slides].indexOf(entry.target);
+        dots.forEach((d, i) => d.classList.toggle('active', i === idx));
+
+        entry.target.querySelectorAll('.reveal, .reveal-scale, .reveal-left, .reveal-right').forEach(el => {
+          el.classList.add('visible');
+        });
+      }
+    });
+  }, {
+    threshold: 0.3
+  });
+
+  slides.forEach(s => observer.observe(s));
+
+  // Keyboard navigation
+  let currentSlide = 0;
+  const goTo = (idx) => {
+    idx = Math.max(0, Math.min(idx, slides.length - 1));
+    currentSlide = idx;
+    slides[idx].scrollIntoView({ behavior: 'smooth' });
+  };
+
+  document.addEventListener('keydown', (e) => {
+    // Don't capture if inside expandable rows etc.
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+    // Update current slide from scroll position
+    slides.forEach((s, i) => {
+      const rect = s.getBoundingClientRect();
+      if (rect.top >= -100 && rect.top < window.innerHeight / 2) currentSlide = i;
+    });
+
+    switch(e.key) {
+      case 'ArrowDown':
+      case 'ArrowRight':
+      case ' ':
+      case 'PageDown':
+        e.preventDefault();
+        goTo(currentSlide + 1);
+        break;
+      case 'ArrowUp':
+      case 'ArrowLeft':
+      case 'PageUp':
+        e.preventDefault();
+        goTo(currentSlide - 1);
+        break;
+      case 'Home':
+        e.preventDefault();
+        goTo(0);
+        break;
+      case 'End':
+        e.preventDefault();
+        goTo(slides.length - 1);
+        break;
+    }
+  });
+
+  // Hide key hint after first interaction
+  const hideHint = () => {
+    keyHint.style.opacity = '0';
+    document.removeEventListener('scroll', hideHint);
+    document.removeEventListener('keydown', hideHint);
+  };
+  hintTimeout = setTimeout(hideHint, 8000);
+  document.addEventListener('scroll', () => { clearTimeout(hintTimeout); hideHint(); });
+})();
+</script>
+
+</body>
+</html>
