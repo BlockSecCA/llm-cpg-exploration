@@ -1,0 +1,15 @@
+# Secrets
+.env
+.env.*
+*.pem
+*.key
+credentials.json
+secrets.json
+config.local.json
+
+# Claude Code
+.claude/settings.local.json
+
+# OS
+.DS_Store
+Thumbs.db

@@ -49,6 +49,8 @@
     display: flex;
     flex-direction: column;
     justify-content: center;
+    align-items: center;
+    text-align: center;
     padding: var(--slide-pad);
     position: relative;
     overflow: hidden;
@@ -188,6 +190,7 @@
   .card-grid {
     display: grid;
     gap: 1.25rem;
+    text-align: left;
   }
   .card-grid-2 { grid-template-columns: repeat(2, 1fr); }
   .card-grid-3 { grid-template-columns: repeat(3, 1fr); }
@@ -281,6 +284,7 @@
     width: 100%;
     border-collapse: collapse;
     font-size: 0.9rem;
+    text-align: left;
   }
   .styled-table th {
     font-family: var(--font-mono);
@@ -373,22 +377,24 @@
   /* ── NEW: Layout Variants ────────────────────────────── */
   .slide-hero {
     justify-content: center;
-    align-items: center;
-    text-align: center;
   }
   .slide-split {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 3rem;
     align-items: center;
+    width: 100%;
+    text-align: left;
   }
   .slide-narrative {
     display: grid;
     grid-template-columns: 3fr 2fr;
     gap: 3rem;
     align-items: center;
+    width: 100%;
+    text-align: left;
   }
-  .slide-content { position: relative; z-index: 1; }
+  .slide-content { position: relative; z-index: 1; width: 100%; }
 
   /* ── NEW: Flip Cards ─────────────────────────────────── */
   .flip-card {
@@ -441,6 +447,7 @@
     border-bottom: 1px solid rgba(255,255,255,0.04);
     cursor: pointer;
     transition: background 0.2s;
+    text-align: left;
   }
   .expandable-row:hover {
     background: rgba(124, 92, 252, 0.04);
@@ -512,6 +519,7 @@
     list-style: none;
     counter-reset: constraint;
     max-width: 900px;
+    text-align: left;
   }
   .constraint-list li {
     counter-increment: constraint;
@@ -541,6 +549,7 @@
     border-radius: 12px;
     padding: 1.2rem 1.5rem 1.2rem 4rem;
     position: relative;
+    text-align: left;
   }
   .takeaway-num {
     position: absolute;
@@ -623,6 +632,9 @@
       <span class="badge badge-warning">Express + Sequelize</span>
       <span class="badge badge-danger">OWASP A06</span>
       <span class="badge badge-success">LLM-Assisted</span>
+    </div>
+    <div class="reveal reveal-d5" style="margin-top:2rem;">
+      <a href="https://github.com/BlockSecCA/llm-cpg-exploration" style="color:var(--text-muted); font-family:var(--font-mono); font-size:0.8rem; text-decoration:none; border-bottom:1px solid var(--text-dim); padding-bottom:0.15em; transition:color 0.2s, border-color 0.2s;" onmouseover="this.style.color='var(--accent-secondary)';this.style.borderColor='var(--accent-secondary)'" onmouseout="this.style.color='var(--text-muted)';this.style.borderColor='var(--text-dim)'">github.com/BlockSecCA/llm-cpg-exploration</a>
     </div>
   </div>
 </section>
