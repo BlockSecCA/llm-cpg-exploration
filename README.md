@@ -8,6 +8,10 @@ The approach: give the LLM a structural graph it can query instead of source cod
 
 **[View the presentation](https://blocksecca.github.io/llm-cpg-exploration/)**
 
+## Companion animation
+
+A ~62-second silent animation narrating the project's core argument. Open [`animation.html`](animation.html), a single self-contained file, and double-click to view. Source scenes live in [`animation/`](animation/) for editing.
+
 ## Results
 
 | | |
